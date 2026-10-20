@@ -13,14 +13,15 @@ This project is designed to process occupational data from the U.S. Department o
 
 # Workflow
 
-```
-data/onet/*  +  data/supplementaryJobTitles.csv
-        |  python build_taxonomy.py          (source of truth, validated)
-        v
-taxonomy/occupations.csv   taxonomy/titles.csv
-        |  python mongoFunctionsLoad.py / mongoTitlesLoad.py   (set MONGO_URI)
-        v
-Mongo: jobFunctions, jobTitles      (jobTitles.code -> jobFunctions.code)
+```mermaid
+flowchart TD
+    A["data/onet/*"] --> B
+    S["data/supplementaryJobTitles.csv"] --> B
+    B["python build_taxonomy.py<br/>(source of truth, validated)"] --> O["taxonomy/occupations.csv"]
+    B --> T["taxonomy/titles.csv"]
+    O -->|"python mongoFunctionsLoad.py<br/>(set MONGO_URI)"| F[("Mongo: jobFunctions")]
+    T -->|"python mongoTitlesLoad.py<br/>(set MONGO_URI)"| J[("Mongo: jobTitles")]
+    J -.->|"jobTitles.code -> jobFunctions.code"| F
 ```
 
 - `taxonomy/occupations.csv`: every O*NET occupation with `jobZone`, `whiteCollar` flag and the full SOC hierarchy (major, minor, broad, detailed), derived from `SOC_structure.csv`.
