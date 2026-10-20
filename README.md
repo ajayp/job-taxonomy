@@ -1,41 +1,77 @@
 # jobTaxonomy
 
 - [Project Summary](#project-summary)
+- [O\*NET model](#onet-model)
 - [Data model](#data-model)
 - [Workflow](#workflow)
 - [Setup and build](#setup-and-build)
+
+Optional extras:
+
 - [Adding your own job titles](#adding-your-own-job-titles) (`data/supplementaryJobTitles.csv`)
 - [Loading into Mongo](#loading-into-mongo)
 - [Mongo fuzzy search (Atlas)](#mongo-fuzzy-search-atlas)
-- [Background](#background) (O\*NET/SOC schema design)
 
 # Project Summary
-This project is designed to process occupational data from the U.S. Department of Labor's O\*NET database and import it into MongoDB. It creates two collections: jobFunctions (one document per O\*NET occupation, like "Marketing Managers") and jobTitles (for specific titles like "Marketing Director").
+This project builds a job taxonomy: a standard way to classify any job title.
+
+- **Job functions** are the categories. They come from O\*NET's occupations (like "Marketing Managers"), organised in the SOC hierarchy from broad groups down to specific occupations, and each is flagged white-collar or not.
+- **Job titles** are the many names people actually use ("Marketing Director", "Bank President"). Each is linked to a job function, so any title resolves to a function and its place in the hierarchy.
+
+It is built from the U.S. Department of Labor's O\*NET database. You can add titles O\*NET lacks, and optionally load the result into MongoDB for searching.
+
+# O\*NET model
+
+O\*NET classifies jobs with the SOC (Standard Occupational Classification), a hierarchy that groups occupations by the work performed, and adds one finer level of its own. The data has five levels:
+
+| Level | Example |
+| --- | --- |
+| Major group | `11-0000` Management Occupations |
+| Minor group | `11-1000` Top Executives |
+| Broad occupation | `11-1010` Chief Executives |
+| Detailed occupation | `11-1011` Chief Executives |
+| O\*NET-SOC occupation | `11-1011.00` Chief Executives, `11-1011.03` Chief Sustainability Officers |
+
+A level can share its parent's name (Chief Executives appears at three levels). Each O\*NET-SOC occupation becomes one job function that carries its whole chain: `majorCode`/`majorGroup`, `minorCode`/`minorGroup`, `broadCode`/`broadOccupation` and `detailedCode`.
+
+Job titles are not a SOC level. They are O\*NET's alternate titles (e.g. "President" under `11-1011.00`), and each becomes a job title that points at its occupation by `code`.
+
+"All Other" occupations (e.g. `11-9199.00` Managers, All Other) are SOC catch-alls for jobs that fit no specific occupation in their group.
+
+Source: https://www.onetcenter.org/taxonomy/2019/structure.html
 
 # Data model
 
-The build produces two datasets, which the loaders import as two Mongo collections:
+The build produces two datasets (the optional Mongo loaders create collections with the same names):
 
-- `jobFunctions` (from `taxonomy/occupations.csv`): `code` (e.g. `11-1011.00`), `title`, `description`, `jobZone`, `whiteCollar`, the SOC hierarchy fields (see [Background](#background)), and `source`.
+- `jobFunctions` (from `taxonomy/occupations.csv`): `code` (e.g. `11-1011.00`), `title`, `description`, `jobZone`, `whiteCollar`, the SOC hierarchy fields (see [O\*NET model](#onet-model)), and `source`.
 - `jobTitles` (from `taxonomy/titles.csv`): `code`, `title`, `shortTitle` and `source`. `jobTitles.code` maps to `jobFunctions.code`.
 
 # Workflow
 
+The build creates two linked datasets from O\*NET (plus your own titles).
+
 ```mermaid
 flowchart TD
-    A["data/onet/*"] --> B
-    S["data/supplementaryJobTitles.csv"] --> B
-    B["python build_taxonomy.py<br/>(source of truth, validated)"] --> O["taxonomy/occupations.csv"]
-    B --> T["taxonomy/titles.csv"]
-    O -->|"python mongoFunctionsLoad.py<br/>(set MONGO_URI)"| F[("Mongo: jobFunctions")]
-    T -->|"python mongoTitlesLoad.py<br/>(set MONGO_URI)"| J[("Mongo: jobTitles")]
-    J -.->|"jobTitles.code -> jobFunctions.code"| F
+    subgraph IN["Inputs"]
+        OD["Occupation Data.txt<br/>Job Zones.txt<br/>SOC_structure.csv"]
+        JT["Job Titles.txt<br/>(O*NET alternate titles)"]
+        S["data/supplementaryJobTitles.csv<br/>(optional: your own titles)"]
+    end
+    OD --> B
+    JT --> B
+    S --> B
+    B["python build_taxonomy.py<br/>(source of truth, validated)"]
+    B --> O["taxonomy/occupations.csv<br/>job functions: one row per occupation"]
+    B --> T["taxonomy/titles.csv<br/>job titles: one row per title"]
+    T -. "title.code = occupation.code" .-> O
 ```
 
-- `taxonomy/occupations.csv`: every O\*NET occupation with `jobZone`, `whiteCollar` flag and the full SOC hierarchy (major, minor, broad, detailed), derived from `SOC_structure.csv`.
-- `taxonomy/titles.csv`: alternate titles (`source=onet`) plus supplementary additions (`source` = the supplement file's name, e.g. `supplementaryJobTitles`).
-- The white-collar rule (SOC major groups + Job Zone 4/5) lives in one place: the constants at the top of `build_taxonomy.py`.
+- **Job functions** (`taxonomy/occupations.csv`): one row per O\*NET occupation, from `Occupation Data.txt`. The build adds `jobZone` (from `Job Zones.txt`), the `whiteCollar` flag, and the SOC hierarchy (major, minor, broad, detailed) from `SOC_structure.csv`.
+- **Job titles** (`taxonomy/titles.csv`): O\*NET's alternate titles from `Job Titles.txt` (`source=onet`), plus your supplementary titles (`source` = the supplement file's name, e.g. `supplementaryJobTitles`).
+- **How they link**: every title row carries the `code` of the occupation it belongs to, so `titles.code` matches `occupations.code`. One occupation has many titles. The same title text can appear under more than one occupation (e.g. "Resident"), as separate rows.
 - The build exits non-zero if a supplementary title has an unknown code or an occupation is missing from the SOC structure.
+- The white-collar rule (SOC major groups + Job Zone 4/5) lives in one place: the constants at the top of `build_taxonomy.py`.
 
 # Setup and build
 
@@ -47,7 +83,7 @@ Use this for a first install and again for each new O\*NET release. The result i
 
 # Adding your own job titles
 
-O\*NET's title list doesn't include every title people really use (e.g. "Founder", "Managing Director"). To add your own, map each one to an O\*NET occupation code in a CSV; they're merged in on every build, so they survive O\*NET refreshes.
+This step is optional. O\*NET's title list doesn't include every title people really use (e.g. "Founder", "Managing Director"). To add your own, map each one to an O\*NET occupation code in a CSV; they're merged in on every build, so they survive O\*NET refreshes.
 
 `data/supplementaryJobTitles.csv` is an input file, not a script: you never run it. You edit it, then run the build, which reads it.
 
@@ -82,11 +118,11 @@ Options and rules:
 
 # Mongo fuzzy search (Atlas)
 
-Requires the data to be loaded (previous section). Create two Atlas Search indexes, one per collection: `functions` on `jobFunctions` (the taxonomy itself) and `title` on `jobTitles` (title search, with each title mapped back to its function). Both are created by hand in Atlas; the loaders do not create them.
+Optional extra; requires the data to be loaded (previous section). Create two Atlas Search indexes, one per collection: `functions` on `jobFunctions` (the taxonomy itself) and `title` on `jobTitles` (title search, with each title mapped back to its function). Both are created by hand in Atlas; the loaders do not create them.
 
 ## Job functions (`functions` index)
 
-Searches the 1,016 O\*NET occupations by name or description, e.g. "marketing" finding Marketing Managers, and can filter on `whiteCollar` and the group fields.
+Searches the O\*NET occupations by name or description, e.g. "marketing" finding Marketing Managers, and can filter on `whiteCollar` and the group fields.
 
 1. Create an Atlas Search index on the `jobFunctions` collection (database `jobTaxonomy` by default): Atlas UI > Search > Create Search Index > JSON Editor, **index name `functions`** (the query below refers to it by name; Atlas defaults to `default`, so change it), with this definition:
 ```json
@@ -243,25 +279,3 @@ Example output of the step 3 query (highest score first; the first 3 of 10 resul
     "score" : 2.950669288635254
 }
 ```
-
-# Background
-
-## O\*NET schema design
-
-O\*NET classifies jobs with the SOC (Standard Occupational Classification), a hierarchy that groups occupations by the work performed, and adds one finer level of its own. The data has five levels (counts are from the current `taxonomy/occupations.csv`):
-
-| Level | Count | Example |
-| --- | --- | --- |
-| Major group | 23 | `11-0000` Management Occupations |
-| Minor group | 98 | `11-1000` Top Executives |
-| Broad occupation | 459 | `11-1010` Chief Executives |
-| Detailed occupation | 867 | `11-1011` Chief Executives |
-| O\*NET-SOC occupation | 1,016 | `11-1011.00` Chief Executives, `11-1011.03` Chief Sustainability Officers |
-
-A level can share its parent's name (Chief Executives appears at three levels). Each O\*NET-SOC occupation becomes one `jobFunctions` document that carries its whole chain: `majorCode`/`majorGroup`, `minorCode`/`minorGroup`, `broadCode`/`broadOccupation` and `detailedCode`.
-
-Job titles are not a SOC level. They are O\*NET's alternate titles (about 54,000, e.g. "President" under `11-1011.00`), and each becomes a `jobTitles` document that points at its occupation by `code`.
-
-"All Other" occupations (e.g. `11-9199.00` Managers, All Other) are SOC catch-alls for jobs that fit no specific occupation in their group.
-
-Source: https://www.onetcenter.org/taxonomy/2019/structure.html
