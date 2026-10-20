@@ -16,7 +16,7 @@ Optional extras:
 
 This project builds a job taxonomy: a standard way to classify any job title.
 
-- **Job functions** are the categories. They come from O\*NET's occupations (like "Marketing Managers"), organized in the SOC hierarchy from broad groups down to specific occupations, and each is flagged white-collar or not.
+- **Job functions** are the categories. They come from O\*NET's occupations (like "Marketing Managers"), organized in the SOC hierarchy from major groups down to specific occupations, and each is flagged white-collar or not.
 - **Job titles** are the many names people actually use ("Marketing Director", "Bank President"). Each is linked to a job function, so any title resolves to a function and its place in the hierarchy.
 
 It is built from the U.S. Department of Labor's O\*NET database. You can add titles O\*NET lacks, and optionally load the result into MongoDB for searching.
@@ -78,7 +78,7 @@ flowchart TD
 
 Use this for a first install and again for each new O\*NET release. The result is `taxonomy/*.csv`; loading into Mongo is a separate, optional step (next sections).
 
-1. **Install** (Python 3.9+): the build needs only the standard library, so there is nothing to install for it. Only the optional Mongo loaders need an extra package (`pymongo`), so set up a virtual environment for it:
+1. **Install** (Python 3.9+): create a virtual environment. It provides the `python` command used in the steps below (outside it, only `python3` may exist). The build itself needs only the standard library; `pymongo` is needed only for the optional Mongo loaders:
 
    ```bash
    python3 -m venv .venv
