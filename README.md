@@ -1,4 +1,4 @@
-# jobTaxonomy
+# job-taxonomy
 
 - [Project Summary](#project-summary)
 - [O\*NET model](#onet-model)
